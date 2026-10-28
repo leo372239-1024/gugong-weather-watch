@@ -1,0 +1,23 @@
+{
+  "version": "2.0",
+  "envId": "your-env-id",
+  "functionRoot": "./functions",
+  "functions": [
+    {
+      "name": "gugong-snow-alert",
+      "timeout": 120,
+      "runtime": "Python3.10",
+      "memorySize": 256,
+      "handler": "index.main",
+      "installDependency": false,
+      "description": "故宫降雪预警：每日07:00巡查未来降雪并发邮件提醒故宫抢票",
+      "triggers": [
+        {
+          "name": "daily-0700",
+          "type": "timer",
+          "config": "0 0 7 * * * *"
+        }
+      ]
+    }
+  ]
+}
