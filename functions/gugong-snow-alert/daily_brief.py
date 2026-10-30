@@ -8,11 +8,10 @@
   不限量，通知经 Apple APNs 直达锁屏，体验最接近短信且零成本。
 
 触发条件（每天 07:00 由同一个云函数调用）：
-  · 默认「每日必推」：无论晴雨，每天早上都推一条（BRIEF_ALWAYS_PUSH 默认 true）
-  · 设为 BRIEF_ALWAYS_PUSH=false 才恢复旧的「安静模式」：
-      晴天且降水概率 < 50% → 静默不推
-    该模式在连续晴天的季节会导致连续多日收不到任何通知，容易被误判为故障，
-    因此不再作为默认行为。
+  · 当天天气非晴天（多云/阴/雨/雪/雾/雷暴）→ 推送
+  · 天气码为晴但降水概率 >= 50% → 也推送（防止「预报说晴实际下雨」）
+  · 其余情况（晴天且降水概率低）静默，不打扰
+  · 例外：BRIEF_ALWAYS_PUSH=true 时改为每日必推，晴天也发一条
 
 推送格式：
   🌤️ 今日天气简报
@@ -244,7 +243,7 @@ DEFAULT_BRIEF_CONFIG = {
 
     # 触发判定
     "rain_prob_alert": 50,                           # 晴天但降水概率 >= 此值也推送
-    "always_push": True,                             # 每日必推（晴也推）；False 恢复「晴天静默」
+    "always_push": False,                            # 默认晴天静默；设 True 改为每日必推
     "enable": True,                                  # 总开关
 }
 
@@ -459,10 +458,9 @@ def assess(cfg, today, cross, air=None):
         divergence = weather_category(cross_code) != cat
 
     # —— 触发判定
-    # 默认每日必推。2026-10-29 / 10-30 实测：连续晴天 + 旧「晴天静默」规则，
-    # 导致连续两天早上手机没有任何通知，用户误判为服务故障。
-    # 提醒类服务的价值在「稳定出现」，不在于「省一条通知」。
-    always_push = bool(cfg.get("always_push", True))
+    # 默认「晴天静默」：晴且降水概率低时不打扰。
+    # 连续晴天会连续多日零通知，属预期行为；如需每日必推，设 BRIEF_ALWAYS_PUSH=true。
+    always_push = bool(cfg.get("always_push", False))
     if not is_sunny:
         should_push = True
         reason = "非晴天：%s" % weather_text(code)
@@ -474,7 +472,7 @@ def assess(cfg, today, cross, air=None):
         reason = "每日播报（晴，降水概率 %d%%）" % prob
     else:
         should_push = False
-        reason = ("安静模式：晴且降水概率 %d%% < %d%%，跳过"
+        reason = ("晴天且降水概率 %d%% < %d%%，按规则静默"
                   % (prob, cfg["rain_prob_alert"]))
 
     # —— 气温：白天窗口优先，缺失回退全天极值
@@ -763,11 +761,15 @@ def run_daily_brief(cfg=None, dry_run=False, force=False):
     title, body = render_push(cfg, brief)
     send_bark(cfg, title, body, dry_run=dry_run)
 
+    # force 时实际是「忽略触发规则推一条」，reason 不能沿用「按规则静默」以免误导排查
+    reason = ("强制推送（通道自检，忽略触发规则）" if force else brief["reason"])
+    snow_alert.log("推送原因：%s" % reason)
+
     return {
         "status": "pushed" if not dry_run else "dry_run",
         "title": title,
         "body": body,
-        "reason": brief["reason"],
+        "reason": reason,
         "category": brief["category"],
         "prob": brief["prob"],
         "temp": [brief["t_min"], brief["t_max"]],

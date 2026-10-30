@@ -80,7 +80,7 @@ def make_today(code, tmin, tmax, feel_min=None, feel_max=None, prob=0,
 
 
 # (说明, today 参数, 空气质量(pm25,pm10), 期望推送, 期望穿衣档位关键字)
-# 默认 BRIEF_ALWAYS_PUSH=true：晴雨都推，因此所有个例期望均为 True
+# 默认 BRIEF_ALWAYS_PUSH=false：晴天且降水概率低时静默，故这两个晴天个例期望为 False
 CASES = [
     ("阴天 · 无降水", dict(code=3, tmin=10, tmax=18, prob=0),
      (35, 50), True, "春秋过渡"),
@@ -88,16 +88,16 @@ CASES = [
      (45, 80), True, "深秋"),
     ("大雪 · 低温", dict(code=75, tmin=-6, tmax=-1, feel_min=-13, feel_max=-5, prob=90, snow=5.0),
      (20, 30), True, "极寒"),
-    ("晴天 · 概率低（每日必推）", dict(code=0, tmin=20, tmax=28, prob=5, uv=8),
-     (30, 45), True, "夏季"),
+    ("晴天 · 概率低（按规则静默）", dict(code=0, tmin=20, tmax=28, prob=5, uv=8),
+     (30, 45), False, None),
     ("晴天 · 概率60%", dict(code=0, tmin=18, tmax=25, prob=60),
      (60, 100), True, "温暖舒适"),
     ("多云 · 低温", dict(code=2, tmin=4, tmax=16, feel_min=2, feel_max=14, prob=10),
      (90, 160), True, "严冬"),
     ("多云 · 大风", dict(code=2, tmin=15, tmax=22, prob=10, wind=35, gust=52, uv=7),
      (50, 80), True, "温暖舒适"),
-    ("晴间少云 · 高温（每日必推）", dict(code=1, tmin=26, tmax=34, prob=0, uv=9),
-     (25, 40), True, "夏季"),
+    ("晴间少云 · 高温（按规则静默）", dict(code=1, tmin=26, tmax=34, prob=0, uv=9),
+     (25, 40), False, None),
     ("雾 · 能见度低", dict(code=45, tmin=5, tmax=11, prob=20),
      (70, 120), True, "深秋"),
     ("多云转晴", dict(code=2, tmin=14, tmax=21, prob=2, code_am=2, code_pm=0),
@@ -221,21 +221,20 @@ def main():
     print("[%s] 夜间低温不污染穿衣：档位=%s（期望 春秋过渡；若误用全天极值会变成极寒）"
           % ("PASS" if cloth_ok else "FAIL", scene_only))
 
-    # 安静模式对照（BRIEF_ALWAYS_PUSH=false）：晴天低概率必须静默
-    # 旧默认就是安静模式，2026-10-29/30 连续晴天导致连续两天零通知，故改为默认必推
+    # 开关对照：默认晴天静默，BRIEF_ALWAYS_PUSH=true 时改为每日必推
     print("\n" + "-" * 72)
     sunny_today = make_today(code=0, tmin=20, tmax=28, prob=5)
-    cfg_quiet = daily_brief.load_brief_config()
-    cfg_quiet["always_push"] = False
-    q_push = daily_brief.assess(cfg_quiet, sunny_today, {"code": 0, "prob": 5},
+    cfg_force = daily_brief.load_brief_config()
+    cfg_force["always_push"] = True
+    f_push = daily_brief.assess(cfg_force, sunny_today, {"code": 0, "prob": 5},
                                 make_air(30, 45))["should_push"]
     d_push = daily_brief.assess(cfg, sunny_today, {"code": 0, "prob": 5},
                                 make_air(30, 45))["should_push"]
-    quiet_ok = (q_push is False) and (d_push is True)
-    if not quiet_ok:
+    switch_ok = (d_push is False) and (f_push is True)
+    if not switch_ok:
         ok = False
-    print("[%s] 开关生效：默认每日必推=%s / 安静模式=%s（期望 True / False）"
-          % ("PASS" if quiet_ok else "FAIL", d_push, q_push))
+    print("[%s] 开关生效：默认晴天静默=%s / 强制每日必推=%s（期望 False / True）"
+          % ("PASS" if switch_ok else "FAIL", d_push, f_push))
 
     # 真实数据链路
     if "--offline" in sys.argv:
