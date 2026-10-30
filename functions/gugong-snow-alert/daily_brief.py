@@ -8,9 +8,11 @@
   不限量，通知经 Apple APNs 直达锁屏，体验最接近短信且零成本。
 
 触发条件（每天 07:00 由同一个云函数调用）：
-  · 当天天气非晴天（多云/阴/雨/雪/雾/雷暴）→ 推送
-  · 天气码为晴但降水概率 >= 50% → 也推送（防止「预报说晴实际下雨」）
-  · 其余情况静默，不打扰
+  · 默认「每日必推」：无论晴雨，每天早上都推一条（BRIEF_ALWAYS_PUSH 默认 true）
+  · 设为 BRIEF_ALWAYS_PUSH=false 才恢复旧的「安静模式」：
+      晴天且降水概率 < 50% → 静默不推
+    该模式在连续晴天的季节会导致连续多日收不到任何通知，容易被误判为故障，
+    因此不再作为默认行为。
 
 推送格式：
   🌤️ 今日天气简报
@@ -242,6 +244,7 @@ DEFAULT_BRIEF_CONFIG = {
 
     # 触发判定
     "rain_prob_alert": 50,                           # 晴天但降水概率 >= 此值也推送
+    "always_push": True,                             # 每日必推（晴也推）；False 恢复「晴天静默」
     "enable": True,                                  # 总开关
 }
 
@@ -254,6 +257,7 @@ def load_brief_config():
         "BARK_GROUP": ("bark_group", str),
         "BARK_LEVEL": ("bark_level", str),
         "BRIEF_ENABLE": ("enable", lambda v: v.lower() in ("1", "true", "yes")),
+        "BRIEF_ALWAYS_PUSH": ("always_push", lambda v: v.lower() in ("1", "true", "yes")),
         "BRIEF_RAIN_PROB_ALERT": ("rain_prob_alert", int),
         "LATITUDE": ("latitude", float),
         "LONGITUDE": ("longitude", float),
@@ -455,11 +459,23 @@ def assess(cfg, today, cross, air=None):
         divergence = weather_category(cross_code) != cat
 
     # —— 触发判定
-    should_push = (not is_sunny) or prob >= cfg["rain_prob_alert"]
-    reason = ""
-    if should_push:
-        reason = ("非晴天：%s" % weather_text(code)) if not is_sunny \
-            else ("预报偏晴但降水概率 %d%%" % prob)
+    # 默认每日必推。2026-10-29 / 10-30 实测：连续晴天 + 旧「晴天静默」规则，
+    # 导致连续两天早上手机没有任何通知，用户误判为服务故障。
+    # 提醒类服务的价值在「稳定出现」，不在于「省一条通知」。
+    always_push = bool(cfg.get("always_push", True))
+    if not is_sunny:
+        should_push = True
+        reason = "非晴天：%s" % weather_text(code)
+    elif prob >= cfg["rain_prob_alert"]:
+        should_push = True
+        reason = "预报偏晴但降水概率 %d%%" % prob
+    elif always_push:
+        should_push = True
+        reason = "每日播报（晴，降水概率 %d%%）" % prob
+    else:
+        should_push = False
+        reason = ("安静模式：晴且降水概率 %d%% < %d%%，跳过"
+                  % (prob, cfg["rain_prob_alert"]))
 
     # —— 气温：白天窗口优先，缺失回退全天极值
     t_min = day["temp_min"] if day["temp_min"] is not None else _first(daily.get("temperature_2m_min"))
@@ -740,8 +756,9 @@ def run_daily_brief(cfg=None, dry_run=False, force=False):
                       brief["feel_min"], brief["feel_max"], brief["aqi"]))
 
     if not brief["should_push"] and not force:
-        snow_alert.log("晴天且降水概率低，按规则不打扰")
-        return {"status": "sunny_skip", "text": brief["text"], "prob": brief["prob"]}
+        snow_alert.log("跳过推送 —— %s" % brief["reason"])
+        return {"status": "sunny_skip", "text": brief["text"],
+                "prob": brief["prob"], "reason": brief["reason"]}
 
     title, body = render_push(cfg, brief)
     send_bark(cfg, title, body, dry_run=dry_run)
@@ -750,6 +767,7 @@ def run_daily_brief(cfg=None, dry_run=False, force=False):
         "status": "pushed" if not dry_run else "dry_run",
         "title": title,
         "body": body,
+        "reason": brief["reason"],
         "category": brief["category"],
         "prob": brief["prob"],
         "temp": [brief["t_min"], brief["t_max"]],

@@ -9,7 +9,7 @@
 
 每个 07:00 依次执行两个相互独立的任务（任一失败不影响另一个）：
   任务 A  降雪巡查   —— 未来 8 天有雪 → 发邮件（抢票提醒）
-  任务 B  天气播报   —— 当天非晴天 → Bark 推送到 iPhone（天气+概率+穿衣）
+  任务 B  天气播报   —— 每天必推 → Bark 推送到 iPhone（天气+概率+穿衣）
 
 定位统一为「故宫博物院」：39.9163N, 116.3972E
 
@@ -18,7 +18,7 @@
   SMTP_HOST / SMTP_PORT / SMTP_USER / MAIL_FROM / MAIL_TO
   BARK_KEY        Bark 推送（任务 B 必需）
   BARK_SERVER     可选，默认 https://api.day.app，自建可替换
-  BARK_GROUP / BARK_LEVEL / BRIEF_ENABLE / BRIEF_RAIN_PROB_ALERT  可选
+  BARK_GROUP / BARK_LEVEL / BRIEF_ENABLE / BRIEF_ALWAYS_PUSH / BRIEF_RAIN_PROB_ALERT  可选
 
 运维调用方式（手动触发时传 event）：
   {}                    正常巡检（两个任务都跑）
