@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 .env
+# 本地工作记忆（含 CloudBase 环境 ID 等运维信息，不入公开仓库）
+.workbuddy/
